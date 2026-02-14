@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bank Balance Tracker</title>
+    <style>
+      :root {
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f4f7fb;
+        display: grid;
+        place-items: center;
+        color: #1f2937;
+      }
+      .card {
+        width: min(520px, 92vw);
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 14px 35px rgba(17, 24, 39, 0.12);
+        padding: 1.25rem;
+      }
+      h1 {
+        margin-top: 0;
+      }
+      .muted {
+        color: #6b7280;
+      }
+      .stack {
+        display: grid;
+        gap: 0.75rem;
+      }
+      .row {
+        display: grid;
+        gap: 0.6rem;
+        grid-template-columns: 1fr 1fr;
+      }
+      @media (max-width: 540px) {
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+      input,
+      button {
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        font-size: 1rem;
+        padding: 0.7rem 0.8rem;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        background: #2563eb;
+        color: white;
+      }
+      button.secondary {
+        background: #374151;
+      }
+      button.ghost {
+        background: #e5e7eb;
+        color: #111827;
+      }
+      button.danger {
+        background: #dc2626;
+      }
+      .error {
+        color: #b91c1c;
+        font-weight: 600;
+      }
+      .success {
+        color: #047857;
+      }
+      .balance {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 12px;
+        padding: 0.9rem;
+        text-align: center;
+      }
+      .balance strong {
+        font-size: 1.6rem;
+        display: block;
+      }
+      #appSection,
+      #notApprovedSection,
+      #loadingSection {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card stack">
+      <h1>Bank Balance Tracker</h1>
+
+      <section id="loadingSection" class="stack">
+        <p class="muted">Loading...</p>
+      </section>
+
+      <section id="authSection" class="stack">
+        <p class="muted">Sign in with Google, or with email and password.</p>
+        <button id="googleLoginBtn">Login with Google</button>
+
+        <div class="row">
+          <input id="emailInput" type="email" placeholder="Email" autocomplete="email" />
+          <input id="passwordInput" type="password" placeholder="Password" autocomplete="current-password" />
+        </div>
+        <div class="row">
+          <button id="emailLoginBtn" class="secondary">Login with Email + Password</button>
+          <button id="emailSignupBtn" class="ghost">Create Account</button>
+        </div>
+      </section>
+
+      <section id="notApprovedSection" class="stack">
+        <p class="error" id="notApprovedMessage">
+          You are signed in, but your account is not approved for access.
+        </p>
+        <button id="logoutFromDeniedBtn" class="danger">Log out</button>
+      </section>
+
+      <section id="appSection" class="stack">
+        <p class="success" id="welcomeText"></p>
+        <div class="balance">
+          Current Balance
+          <strong id="balanceValue">$0.00</strong>
+        </div>
+
+        <div class="row">
+          <input id="amountInput" type="number" step="0.01" min="0" placeholder="Amount" />
+          <input id="noteInput" type="text" maxlength="80" placeholder="Optional note" />
+        </div>
+        <div class="row">
+          <button id="depositBtn">Deposit</button>
+          <button id="withdrawBtn" class="secondary">Withdraw</button>
+        </div>
+        <button id="logoutBtn" class="danger">Log out</button>
+      </section>
+
+      <p id="statusText" class="muted" aria-live="polite"></p>
+    </main>
+
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+      import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-analytics.js";
+      import {
+        getAuth,
+        GoogleAuthProvider,
+        createUserWithEmailAndPassword,
+        signInWithEmailAndPassword,
+        signInWithPopup,
+        onAuthStateChanged,
+        signOut,
+      } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js";
+      import {
+        getFirestore,
+        doc,
+        getDoc,
+        setDoc,
+        updateDoc,
+        increment,
+        arrayUnion,
+        serverTimestamp,
+      } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyCk5HZFjRgO4phnMrr7r7jKKFSx6hU_3BQ",
+        authDomain: "bank-balance-6f210.firebaseapp.com",
+        projectId: "bank-balance-6f210",
+        storageBucket: "bank-balance-6f210.firebasestorage.app",
+        messagingSenderId: "707481363327",
+        appId: "1:707481363327:web:39cdceabae5e73a76b304a",
+        measurementId: "G-3FXW8V7NJ6",
+      };
+
+      const app = initializeApp(firebaseConfig);
+      getAnalytics(app);
+
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      const googleProvider = new GoogleAuthProvider();
+
+      const loadingSection = document.getElementById("loadingSection");
+      const authSection = document.getElementById("authSection");
+      const appSection = document.getElementById("appSection");
+      const notApprovedSection = document.getElementById("notApprovedSection");
+      const statusText = document.getElementById("statusText");
+      const welcomeText = document.getElementById("welcomeText");
+      const balanceValue = document.getElementById("balanceValue");
+      const emailInput = document.getElementById("emailInput");
+      const passwordInput = document.getElementById("passwordInput");
+      const amountInput = document.getElementById("amountInput");
+      const noteInput = document.getElementById("noteInput");
+
+      const setStatus = (msg, isError = false) => {
+        statusText.textContent = msg;
+        statusText.className = isError ? "error" : "muted";
+      };
+
+      const showOnly = (sectionId) => {
+        [loadingSection, authSection, appSection, notApprovedSection].forEach((el) => {
+          el.style.display = "none";
+        });
+        sectionId.style.display = "grid";
+      };
+
+      const userBalanceRef = (uid) => doc(db, "balances", uid);
+      const approvedUserRef = (uid) => doc(db, "approved_users", uid);
+
+      const checkApproved = async (uid) => {
+        const snapshot = await getDoc(approvedUserRef(uid));
+        return snapshot.exists() && snapshot.data()?.approved === true;
+      };
+
+      const ensureBalanceDoc = async (uid) => {
+        const ref = userBalanceRef(uid);
+        const snapshot = await getDoc(ref);
+        if (!snapshot.exists()) {
+          await setDoc(ref, {
+            balance: 0,
+            updatedAt: serverTimestamp(),
+            history: [],
+          });
+          return 0;
+        }
+        return Number(snapshot.data().balance || 0);
+      };
+
+      const loadBalance = async (uid) => {
+        const snapshot = await getDoc(userBalanceRef(uid));
+        const balance = Number(snapshot.data()?.balance || 0);
+        balanceValue.textContent = `$${balance.toFixed(2)}`;
+      };
+
+      const saveTransaction = async (uid, delta, note) => {
+        const ref = userBalanceRef(uid);
+        await updateDoc(ref, {
+          balance: increment(delta),
+          updatedAt: serverTimestamp(),
+          history: arrayUnion({
+            delta,
+            note: note || "",
+            at: new Date().toISOString(),
+          }),
+        });
+      };
+
+      const runTx = async (sign) => {
+        const user = auth.currentUser;
+        if (!user) return;
+
+        const amount = Number(amountInput.value);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          setStatus("Enter a valid positive amount.", true);
+          return;
+        }
+
+        const delta = sign * Math.abs(amount);
+        try {
+          await saveTransaction(user.uid, delta, noteInput.value.trim());
+          amountInput.value = "";
+          noteInput.value = "";
+          await loadBalance(user.uid);
+          setStatus(`Saved ${delta > 0 ? "deposit" : "withdrawal"}.`);
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      };
+
+      document.getElementById("googleLoginBtn").addEventListener("click", async () => {
+        try {
+          await signInWithPopup(auth, googleProvider);
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      document.getElementById("emailLoginBtn").addEventListener("click", async () => {
+        try {
+          await signInWithEmailAndPassword(auth, emailInput.value.trim(), passwordInput.value);
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      document.getElementById("emailSignupBtn").addEventListener("click", async () => {
+        try {
+          await createUserWithEmailAndPassword(auth, emailInput.value.trim(), passwordInput.value);
+          setStatus("Account created. Approval is still required before access.");
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      });
+
+      document.getElementById("depositBtn").addEventListener("click", () => runTx(1));
+      document.getElementById("withdrawBtn").addEventListener("click", () => runTx(-1));
+      document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
+      document.getElementById("logoutFromDeniedBtn").addEventListener("click", () => signOut(auth));
+
+      onAuthStateChanged(auth, async (user) => {
+        setStatus("");
+        showOnly(loadingSection);
+
+        if (!user) {
+          showOnly(authSection);
+          return;
+        }
+
+        try {
+          const approved = await checkApproved(user.uid);
+          if (!approved) {
+            showOnly(notApprovedSection);
+            return;
+          }
+
+          const name = user.displayName || user.email || "Approved user";
+          welcomeText.textContent = `Welcome, ${name}`;
+          await ensureBalanceDoc(user.uid);
+          await loadBalance(user.uid);
+          showOnly(appSection);
+        } catch (error) {
+          setStatus(error.message, true);
+          showOnly(authSection);
+        }
+      });
+    </script>
+  </body>
+</html>
