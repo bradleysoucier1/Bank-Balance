@@ -85,6 +85,22 @@
         font-size: 1.6rem;
         display: block;
       }
+      .history-box {
+        border: 1px solid #d1d5db;
+        border-radius: 12px;
+        padding: 0.8rem;
+        background: #fafafa;
+      }
+      .history-box h2 {
+        margin: 0 0 0.5rem 0;
+        font-size: 1rem;
+      }
+      .history-list {
+        margin: 0;
+        padding-left: 1.1rem;
+        max-height: 180px;
+        overflow: auto;
+      }
       #appSection,
       #notApprovedSection,
       #loadingSection {
@@ -135,6 +151,11 @@
         <div class="row">
           <button id="depositBtn">Deposit</button>
           <button id="withdrawBtn" class="secondary">Withdraw</button>
+        </div>
+        <button id="toggleHistoryBtn" class="ghost">Show History</button>
+        <div id="historySection" class="history-box" style="display: none">
+          <h2>History</h2>
+          <ul id="historyList" class="history-list"></ul>
         </div>
         <button id="logoutBtn" class="danger">Log out</button>
       </section>
@@ -193,6 +214,9 @@
       const passwordInput = document.getElementById("passwordInput");
       const amountInput = document.getElementById("amountInput");
       const noteInput = document.getElementById("noteInput");
+      const historySection = document.getElementById("historySection");
+      const historyList = document.getElementById("historyList");
+      const toggleHistoryBtn = document.getElementById("toggleHistoryBtn");
 
       const setStatus = (msg, isError = false) => {
         statusText.textContent = msg;
@@ -228,10 +252,36 @@
         return Number(snapshot.data().balance || 0);
       };
 
+      const renderHistory = (entries) => {
+        historyList.innerHTML = "";
+        if (!entries.length) {
+          const item = document.createElement("li");
+          item.textContent = "No transactions yet.";
+          historyList.appendChild(item);
+          return;
+        }
+
+        entries
+          .slice()
+          .reverse()
+          .forEach((entry) => {
+            const item = document.createElement("li");
+            const delta = Number(entry.delta || 0);
+            const type = delta >= 0 ? "Deposit" : "Withdraw";
+            const notePart = entry.note ? ` — ${entry.note}` : "";
+            const dateLabel = entry.at ? new Date(entry.at).toLocaleString() : "Unknown time";
+            item.textContent = `${type}: $${Math.abs(delta).toFixed(2)}${notePart} (${dateLabel})`;
+            historyList.appendChild(item);
+          });
+      };
+
       const loadBalance = async (uid) => {
         const snapshot = await getDoc(userBalanceRef(uid));
-        const balance = Number(snapshot.data()?.balance || 0);
+        const data = snapshot.data() || {};
+        const balance = Number(data.balance || 0);
+        const history = Array.isArray(data.history) ? data.history : [];
         balanceValue.textContent = `$${balance.toFixed(2)}`;
+        renderHistory(history);
       };
 
       const saveTransaction = async (uid, delta, note) => {
@@ -296,6 +346,11 @@
 
       document.getElementById("depositBtn").addEventListener("click", () => runTx(1));
       document.getElementById("withdrawBtn").addEventListener("click", () => runTx(-1));
+      toggleHistoryBtn.addEventListener("click", () => {
+        const showing = historySection.style.display !== "none";
+        historySection.style.display = showing ? "none" : "block";
+        toggleHistoryBtn.textContent = showing ? "Show History" : "Hide History";
+      });
       document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
       document.getElementById("logoutFromDeniedBtn").addEventListener("click", () => signOut(auth));
 
@@ -304,6 +359,8 @@
         showOnly(loadingSection);
 
         if (!user) {
+          historySection.style.display = "none";
+          toggleHistoryBtn.textContent = "Show History";
           showOnly(authSection);
           return;
         }
