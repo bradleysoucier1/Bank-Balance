@@ -230,7 +230,7 @@
         sectionId.style.display = "grid";
       };
 
-      const userBalanceRef = (uid) => doc(db, "balances", uid);
+      const sharedBalanceRef = () => doc(db, "balances", "shared");
       const approvedUserRef = (uid) => doc(db, "approved_users", uid);
 
       const checkApproved = async (uid) => {
@@ -238,8 +238,8 @@
         return snapshot.exists() && snapshot.data()?.approved === true;
       };
 
-      const ensureBalanceDoc = async (uid) => {
-        const ref = userBalanceRef(uid);
+      const ensureBalanceDoc = async () => {
+        const ref = sharedBalanceRef();
         const snapshot = await getDoc(ref);
         if (!snapshot.exists()) {
           await setDoc(ref, {
@@ -275,8 +275,8 @@
           });
       };
 
-      const loadBalance = async (uid) => {
-        const snapshot = await getDoc(userBalanceRef(uid));
+      const loadBalance = async () => {
+        const snapshot = await getDoc(sharedBalanceRef());
         const data = snapshot.data() || {};
         const balance = Number(data.balance || 0);
         const history = Array.isArray(data.history) ? data.history : [];
@@ -284,8 +284,8 @@
         renderHistory(history);
       };
 
-      const saveTransaction = async (uid, delta, note) => {
-        const ref = userBalanceRef(uid);
+      const saveTransaction = async (delta, note) => {
+        const ref = sharedBalanceRef();
         await updateDoc(ref, {
           balance: increment(delta),
           updatedAt: serverTimestamp(),
@@ -309,10 +309,10 @@
 
         const delta = sign * Math.abs(amount);
         try {
-          await saveTransaction(user.uid, delta, noteInput.value.trim());
+          await saveTransaction(delta, noteInput.value.trim());
           amountInput.value = "";
           noteInput.value = "";
-          await loadBalance(user.uid);
+          await loadBalance();
           setStatus(`Saved ${delta > 0 ? "deposit" : "withdrawal"}.`);
         } catch (error) {
           setStatus(error.message, true);
@@ -373,9 +373,9 @@
           }
 
           const name = user.displayName || user.email || "Approved user";
-          welcomeText.textContent = `Welcome, ${name}`;
-          await ensureBalanceDoc(user.uid);
-          await loadBalance(user.uid);
+          welcomeText.textContent = `Welcome, ${name}. You are editing the shared balance.`;
+          await ensureBalanceDoc();
+          await loadBalance();
           showOnly(appSection);
         } catch (error) {
           setStatus(error.message, true);

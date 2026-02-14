@@ -5,43 +5,43 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(uid) {
-      return signedIn() && request.auth.uid == uid;
-    }
-
     function isApproved(uid) {
       return exists(/databases/$(database)/documents/approved_users/$(uid))
         && get(/databases/$(database)/documents/approved_users/$(uid)).data.approved == true;
     }
 
+    function requesterApproved() {
+      return signedIn() && isApproved(request.auth.uid);
+    }
+
     // Approval records are server-managed/admin-managed.
     // The client app only reads approval for the currently signed-in user.
     match /approved_users/{uid} {
-      allow read: if isOwner(uid);
+      allow read: if signedIn() && request.auth.uid == uid;
       allow write: if false;
     }
 
-    // Per-user bank balance documents.
-    match /balances/{uid} {
-      allow read: if isOwner(uid) && isApproved(uid);
+    // Shared single bank balance document for all approved users.
+    match /balances/shared {
+      allow read: if requesterApproved();
 
-      allow create: if isOwner(uid)
-        && isApproved(uid)
+      allow create: if requesterApproved()
         && request.resource.data.keys().hasOnly(['balance', 'updatedAt', 'history'])
         && request.resource.data.balance is number
         && request.resource.data.history is list;
 
-      allow update: if isOwner(uid)
-        && isApproved(uid)
+      allow update: if requesterApproved()
         && request.resource.data.keys().hasOnly(['balance', 'updatedAt', 'history'])
         && request.resource.data.balance is number
         && request.resource.data.history is list
-        && (
-          !('history' in resource.data)
-          || request.resource.data.history.size() <= resource.data.history.size() + 1
-        );
+        && request.resource.data.history.size() <= resource.data.history.size() + 1;
 
       allow delete: if false;
+    }
+
+    // Deny access to any other balance docs.
+    match /balances/{docId} {
+      allow read, write: if false;
     }
   }
 }
