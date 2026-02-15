@@ -25,16 +25,19 @@ service cloud.firestore {
     match /balances/shared {
       allow read: if requesterApproved();
 
+      // Create is used when the shared document is initialized.
       allow create: if requesterApproved()
         && request.resource.data.keys().hasOnly(['balance', 'updatedAt', 'history'])
         && request.resource.data.balance is number
         && request.resource.data.history is list;
 
+      // Update allows atomic transforms used by the app:
+      // - balance: increment(...)
+      // - updatedAt: serverTimestamp()
+      // - history: arrayUnion(...)
       allow update: if requesterApproved()
         && request.resource.data.keys().hasOnly(['balance', 'updatedAt', 'history'])
-        && request.resource.data.balance is number
-        && request.resource.data.history is list
-        && request.resource.data.history.size() <= resource.data.history.size() + 1;
+        && request.resource.data.balance is number;
 
       allow delete: if false;
     }
