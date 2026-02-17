@@ -97,8 +97,24 @@
       .history-list {
         margin: 0;
         padding-left: 1.1rem;
-        max-height: 180px;
+        max-height: 220px;
         overflow: auto;
+      }
+      .history-item-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.5rem;
+        margin-bottom: 0.3rem;
+      }
+      .history-actions {
+        display: flex;
+        gap: 0.35rem;
+        flex-shrink: 0;
+      }
+      .history-actions button {
+        padding: 0.3rem 0.5rem;
+        font-size: 0.8rem;
       }
       #loadingSection,
       #passwordSection,
@@ -188,6 +204,9 @@
       const historyList = document.getElementById("historyList");
       const toggleHistoryBtn = document.getElementById("toggleHistoryBtn");
 
+      let currentBalance = 0;
+      let currentHistory = [];
+
       const sharedBalanceRef = () => doc(db, "balances", "shared");
       const accessConfigRef = () => doc(db, "app_config", "access");
 
@@ -215,13 +234,23 @@
         entries
           .slice()
           .reverse()
-          .forEach((entry) => {
+          .forEach((entry, reverseIndex) => {
+            const originalIndex = entries.length - 1 - reverseIndex;
             const item = document.createElement("li");
             const delta = Number(entry.delta || 0);
             const type = delta >= 0 ? "Deposit" : "Withdraw";
             const notePart = entry.note ? ` — ${entry.note}` : "";
             const dateLabel = entry.at ? new Date(entry.at).toLocaleString() : "Unknown time";
-            item.textContent = `${type}: $${Math.abs(delta).toFixed(2)}${notePart} (${dateLabel})`;
+
+            item.innerHTML = `
+              <div class="history-item-row">
+                <span>${type}: $${Math.abs(delta).toFixed(2)}${notePart} (${dateLabel})</span>
+                <span class="history-actions">
+                  <button type="button" class="secondary" data-action="edit" data-index="${originalIndex}">Edit</button>
+                  <button type="button" class="danger" data-action="delete" data-index="${originalIndex}">Delete</button>
+                </span>
+              </div>
+            `;
             historyList.appendChild(item);
           });
       };
@@ -241,10 +270,10 @@
       const loadBalance = async () => {
         const snapshot = await getDoc(sharedBalanceRef());
         const data = snapshot.data() || {};
-        const balance = Number(data.balance || 0);
-        const history = Array.isArray(data.history) ? data.history : [];
-        balanceValue.textContent = `$${balance.toFixed(2)}`;
-        renderHistory(history);
+        currentBalance = Number(data.balance || 0);
+        currentHistory = Array.isArray(data.history) ? data.history : [];
+        balanceValue.textContent = `$${currentBalance.toFixed(2)}`;
+        renderHistory(currentHistory);
       };
 
       const saveTransaction = async (delta, note) => {
@@ -257,6 +286,78 @@
             at: new Date().toISOString(),
           }),
         });
+      };
+
+      const applyHistoryUpdate = async (nextHistory, balanceDelta) => {
+        await updateDoc(sharedBalanceRef(), {
+          balance: increment(balanceDelta),
+          updatedAt: serverTimestamp(),
+          history: nextHistory,
+        });
+      };
+
+      const editHistoryItem = async (index) => {
+        const existing = currentHistory[index];
+        if (!existing) return;
+
+        const currentType = Number(existing.delta || 0) >= 0 ? "deposit" : "withdraw";
+        const nextTypeRaw = prompt("Type: deposit or withdraw", currentType);
+        if (nextTypeRaw === null) return;
+        const nextType = nextTypeRaw.trim().toLowerCase();
+        if (!["deposit", "withdraw"].includes(nextType)) {
+          setStatus("Type must be deposit or withdraw.", true);
+          return;
+        }
+
+        const currentAmount = Math.abs(Number(existing.delta || 0)).toFixed(2);
+        const amountRaw = prompt("Amount", currentAmount);
+        if (amountRaw === null) return;
+        const amount = Number(amountRaw);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          setStatus("Amount must be a positive number.", true);
+          return;
+        }
+
+        const noteRaw = prompt("Note (optional)", existing.note || "");
+        if (noteRaw === null) return;
+
+        const newDelta = (nextType === "deposit" ? 1 : -1) * Math.abs(amount);
+        const oldDelta = Number(existing.delta || 0);
+        const balanceDelta = newDelta - oldDelta;
+
+        const nextHistory = [...currentHistory];
+        nextHistory[index] = {
+          ...existing,
+          delta: newDelta,
+          note: noteRaw.trim(),
+          editedAt: new Date().toISOString(),
+        };
+
+        try {
+          await applyHistoryUpdate(nextHistory, balanceDelta);
+          await loadBalance();
+          setStatus("History item updated.");
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      };
+
+      const deleteHistoryItem = async (index) => {
+        const existing = currentHistory[index];
+        if (!existing) return;
+        const ok = confirm("Delete this history item?");
+        if (!ok) return;
+
+        const oldDelta = Number(existing.delta || 0);
+        const nextHistory = currentHistory.filter((_, i) => i !== index);
+
+        try {
+          await applyHistoryUpdate(nextHistory, -oldDelta);
+          await loadBalance();
+          setStatus("History item deleted.");
+        } catch (error) {
+          setStatus(error.message, true);
+        }
       };
 
       const loadApp = async () => {
@@ -329,6 +430,21 @@
         const showing = historySection.style.display !== "none";
         historySection.style.display = showing ? "none" : "block";
         toggleHistoryBtn.textContent = showing ? "Show History" : "Hide History";
+      });
+
+      historyList.addEventListener("click", async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const action = target.dataset.action;
+        const index = Number(target.dataset.index);
+        if (!action || !Number.isInteger(index)) return;
+
+        if (action === "edit") {
+          await editHistoryItem(index);
+        }
+        if (action === "delete") {
+          await deleteHistoryItem(index);
+        }
       });
 
       const boot = async () => {
