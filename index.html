@@ -396,6 +396,37 @@
         }
       };
 
+      const tryUnlockFromHash = async () => {
+        const hashPassword = decodeURIComponent(window.location.hash.replace(/^#/, "")).trim();
+        if (!hashPassword) return false;
+
+        try {
+          const configSnapshot = await getDoc(accessConfigRef());
+          const savedPassword = configSnapshot.data()?.password;
+
+          if (!savedPassword) {
+            setStatus("Password is not configured in Firebase at app_config/access.password.", true);
+            return false;
+          }
+
+          if (hashPassword !== savedPassword) {
+            setStatus("Password in link is incorrect.", true);
+            return false;
+          }
+
+          sessionStorage.setItem("bank_balance_unlocked", "yes");
+          setStatus("Access granted from link.");
+          historySection.style.display = "none";
+          toggleHistoryBtn.textContent = "Show History";
+          window.location.hash = "";
+          await loadApp();
+          return true;
+        } catch (error) {
+          setStatus(error.message, true);
+          return false;
+        }
+      };
+
       const runTx = async (sign) => {
         const amount = Number(amountInput.value);
         if (!Number.isFinite(amount) || amount <= 0) {
@@ -455,7 +486,11 @@
           const unlocked = sessionStorage.getItem("bank_balance_unlocked") === "yes";
           if (unlocked) {
             await loadApp();
-          } else {
+            return;
+          }
+
+          const unlockedFromHash = await tryUnlockFromHash();
+          if (!unlockedFromHash) {
             showOnly(passwordSection);
           }
         } catch (error) {
@@ -463,6 +498,11 @@
           showOnly(passwordSection);
         }
       };
+
+      window.addEventListener("hashchange", async () => {
+        if (sessionStorage.getItem("bank_balance_unlocked") === "yes") return;
+        await tryUnlockFromHash();
+      });
 
       boot();
     </script>
