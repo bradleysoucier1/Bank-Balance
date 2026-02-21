@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bank Balance Tracker</title>
+    <style>
+      :root {
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f4f7fb;
+        display: grid;
+        place-items: center;
+        color: #1f2937;
+      }
+      .card {
+        width: min(560px, 92vw);
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 14px 35px rgba(17, 24, 39, 0.12);
+        padding: 1.25rem;
+      }
+      h1 {
+        margin-top: 0;
+      }
+      .stack {
+        display: grid;
+        gap: 0.75rem;
+      }
+      .row {
+        display: grid;
+        gap: 0.6rem;
+        grid-template-columns: 1fr 1fr;
+      }
+      @media (max-width: 540px) {
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+      input,
+      button {
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        font-size: 1rem;
+        padding: 0.7rem 0.8rem;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        background: #2563eb;
+        color: white;
+      }
+      button.secondary {
+        background: #374151;
+      }
+      button.ghost {
+        background: #e5e7eb;
+        color: #111827;
+      }
+      button.danger {
+        background: #dc2626;
+      }
+      .muted {
+        color: #6b7280;
+      }
+      .error {
+        color: #b91c1c;
+        font-weight: 600;
+      }
+      .success {
+        color: #047857;
+      }
+      .balance {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 12px;
+        padding: 0.9rem;
+        text-align: center;
+      }
+      .balance strong {
+        font-size: 1.6rem;
+        display: block;
+      }
+      .history-box {
+        border: 1px solid #d1d5db;
+        border-radius: 12px;
+        padding: 0.8rem;
+        background: #fafafa;
+      }
+      .history-box h2 {
+        margin: 0 0 0.5rem 0;
+        font-size: 1rem;
+      }
+      .history-list {
+        margin: 0;
+        padding-left: 1.1rem;
+        max-height: 220px;
+        overflow: auto;
+      }
+      .history-item-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.5rem;
+        margin-bottom: 0.3rem;
+      }
+      .history-actions {
+        display: flex;
+        gap: 0.35rem;
+        flex-shrink: 0;
+      }
+      .history-actions button {
+        padding: 0.3rem 0.5rem;
+        font-size: 0.8rem;
+      }
+      #loadingSection,
+      #passwordSection,
+      #appSection {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card stack">
+      <h1>Bank Balance Tracker</h1>
+
+      <section id="loadingSection" class="stack">
+        <p class="muted">Loading...</p>
+      </section>
+
+      <section id="passwordSection" class="stack">
+        <p class="muted">Enter the app password to access the shared bank balance.</p>
+        <input id="accessPasswordInput" type="password" placeholder="Password" />
+        <button id="unlockBtn">Unlock</button>
+      </section>
+
+      <section id="appSection" class="stack">
+        <p class="success">Access granted. You are editing the shared balance.</p>
+        <div class="balance">
+          Current Balance
+          <strong id="balanceValue">$0.00</strong>
+        </div>
+
+        <div class="row">
+          <input id="amountInput" type="number" step="0.01" min="0" placeholder="Amount" />
+          <input id="noteInput" type="text" maxlength="80" placeholder="Optional note" />
+        </div>
+        <div class="row">
+          <button id="depositBtn">Deposit</button>
+          <button id="withdrawBtn" class="secondary">Withdraw</button>
+        </div>
+        <button id="toggleHistoryBtn" class="ghost">Show History</button>
+        <div id="historySection" class="history-box" style="display: none">
+          <h2>History</h2>
+          <ul id="historyList" class="history-list"></ul>
+        </div>
+        <button id="lockBtn" class="danger">Lock</button>
+      </section>
+
+      <p id="statusText" class="muted" aria-live="polite"></p>
+    </main>
+
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+      import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-analytics.js";
+      import {
+        getFirestore,
+        doc,
+        getDoc,
+        setDoc,
+        updateDoc,
+        increment,
+        arrayUnion,
+        serverTimestamp,
+      } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyCk5HZFjRgO4phnMrr7r7jKKFSx6hU_3BQ",
+        authDomain: "bank-balance-6f210.firebaseapp.com",
+        projectId: "bank-balance-6f210",
+        storageBucket: "bank-balance-6f210.firebasestorage.app",
+        messagingSenderId: "707481363327",
+        appId: "1:707481363327:web:39cdceabae5e73a76b304a",
+        measurementId: "G-3FXW8V7NJ6",
+      };
+
+      const app = initializeApp(firebaseConfig);
+      getAnalytics(app);
+      const db = getFirestore(app);
+
+      const loadingSection = document.getElementById("loadingSection");
+      const passwordSection = document.getElementById("passwordSection");
+      const appSection = document.getElementById("appSection");
+      const statusText = document.getElementById("statusText");
+
+      const accessPasswordInput = document.getElementById("accessPasswordInput");
+      const amountInput = document.getElementById("amountInput");
+      const noteInput = document.getElementById("noteInput");
+      const balanceValue = document.getElementById("balanceValue");
+      const historySection = document.getElementById("historySection");
+      const historyList = document.getElementById("historyList");
+      const toggleHistoryBtn = document.getElementById("toggleHistoryBtn");
+
+      let currentBalance = 0;
+      let currentHistory = [];
+
+      const sharedBalanceRef = () => doc(db, "balances", "shared");
+      const accessConfigRef = () => doc(db, "app_config", "access");
+
+      const setStatus = (msg, isError = false) => {
+        statusText.textContent = msg;
+        statusText.className = isError ? "error" : "muted";
+      };
+
+      const showOnly = (section) => {
+        [loadingSection, passwordSection, appSection].forEach((el) => {
+          el.style.display = "none";
+        });
+        section.style.display = "grid";
+      };
+
+      const renderHistory = (entries) => {
+        historyList.innerHTML = "";
+        if (!entries.length) {
+          const item = document.createElement("li");
+          item.textContent = "No transactions yet.";
+          historyList.appendChild(item);
+          return;
+        }
+
+        entries
+          .slice()
+          .reverse()
+          .forEach((entry, reverseIndex) => {
+            const originalIndex = entries.length - 1 - reverseIndex;
+            const item = document.createElement("li");
+            const delta = Number(entry.delta || 0);
+            const type = delta >= 0 ? "Deposit" : "Withdraw";
+            const notePart = entry.note ? ` — ${entry.note}` : "";
+            const dateLabel = entry.at ? new Date(entry.at).toLocaleString() : "Unknown time";
+
+            item.innerHTML = `
+              <div class="history-item-row">
+                <span>${type}: $${Math.abs(delta).toFixed(2)}${notePart} (${dateLabel})</span>
+                <span class="history-actions">
+                  <button type="button" class="secondary" data-action="edit" data-index="${originalIndex}">Edit</button>
+                  <button type="button" class="danger" data-action="delete" data-index="${originalIndex}">Delete</button>
+                </span>
+              </div>
+            `;
+            historyList.appendChild(item);
+          });
+      };
+
+      const ensureBalanceDoc = async () => {
+        const ref = sharedBalanceRef();
+        const snapshot = await getDoc(ref);
+        if (!snapshot.exists()) {
+          await setDoc(ref, {
+            balance: 0,
+            updatedAt: serverTimestamp(),
+            history: [],
+          });
+        }
+      };
+
+      const loadBalance = async () => {
+        const snapshot = await getDoc(sharedBalanceRef());
+        const data = snapshot.data() || {};
+        currentBalance = Number(data.balance || 0);
+        currentHistory = Array.isArray(data.history) ? data.history : [];
+        balanceValue.textContent = `$${currentBalance.toFixed(2)}`;
+        renderHistory(currentHistory);
+      };
+
+      const saveTransaction = async (delta, note) => {
+        await updateDoc(sharedBalanceRef(), {
+          balance: increment(delta),
+          updatedAt: serverTimestamp(),
+          history: arrayUnion({
+            delta,
+            note: note || "",
+            at: new Date().toISOString(),
+          }),
+        });
+      };
+
+      const applyHistoryUpdate = async (nextHistory, balanceDelta) => {
+        await updateDoc(sharedBalanceRef(), {
+          balance: increment(balanceDelta),
+          updatedAt: serverTimestamp(),
+          history: nextHistory,
+        });
+      };
+
+      const editHistoryItem = async (index) => {
+        const existing = currentHistory[index];
+        if (!existing) return;
+
+        const currentType = Number(existing.delta || 0) >= 0 ? "deposit" : "withdraw";
+        const nextTypeRaw = prompt("Type: deposit or withdraw", currentType);
+        if (nextTypeRaw === null) return;
+        const nextType = nextTypeRaw.trim().toLowerCase();
+        if (!["deposit", "withdraw"].includes(nextType)) {
+          setStatus("Type must be deposit or withdraw.", true);
+          return;
+        }
+
+        const currentAmount = Math.abs(Number(existing.delta || 0)).toFixed(2);
+        const amountRaw = prompt("Amount", currentAmount);
+        if (amountRaw === null) return;
+        const amount = Number(amountRaw);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          setStatus("Amount must be a positive number.", true);
+          return;
+        }
+
+        const noteRaw = prompt("Note (optional)", existing.note || "");
+        if (noteRaw === null) return;
+
+        const newDelta = (nextType === "deposit" ? 1 : -1) * Math.abs(amount);
+        const oldDelta = Number(existing.delta || 0);
+        const balanceDelta = newDelta - oldDelta;
+
+        const nextHistory = [...currentHistory];
+        nextHistory[index] = {
+          ...existing,
+          delta: newDelta,
+          note: noteRaw.trim(),
+          editedAt: new Date().toISOString(),
+        };
+
+        try {
+          await applyHistoryUpdate(nextHistory, balanceDelta);
+          await loadBalance();
+          setStatus("History item updated.");
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      };
+
+      const deleteHistoryItem = async (index) => {
+        const existing = currentHistory[index];
+        if (!existing) return;
+        const ok = confirm("Delete this history item?");
+        if (!ok) return;
+
+        const oldDelta = Number(existing.delta || 0);
+        const nextHistory = currentHistory.filter((_, i) => i !== index);
+
+        try {
+          await applyHistoryUpdate(nextHistory, -oldDelta);
+          await loadBalance();
+          setStatus("History item deleted.");
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      };
+
+      const loadApp = async () => {
+        await ensureBalanceDoc();
+        await loadBalance();
+        showOnly(appSection);
+      };
+
+      const verifyPassword = async () => {
+        const password = accessPasswordInput.value;
+        if (!password) {
+          setStatus("Enter a password.", true);
+          return;
+        }
+
+        try {
+          const configSnapshot = await getDoc(accessConfigRef());
+          const savedPassword = configSnapshot.data()?.password;
+
+          if (!savedPassword) {
+            setStatus("Password is not configured in Firebase at app_config/access.password.", true);
+            return;
+          }
+
+          if (password !== savedPassword) {
+            setStatus("Incorrect password.", true);
+            return;
+          }
+
+          sessionStorage.setItem("bank_balance_unlocked", "yes");
+          accessPasswordInput.value = "";
+          setStatus("Access granted.");
+          await loadApp();
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      };
+
+      const tryUnlockFromHash = async () => {
+        const hashPassword = decodeURIComponent(window.location.hash.replace(/^#/, "")).trim();
+        if (!hashPassword) return false;
+
+        try {
+          const configSnapshot = await getDoc(accessConfigRef());
+          const savedPassword = configSnapshot.data()?.password;
+
+          if (!savedPassword) {
+            setStatus("Password is not configured in Firebase at app_config/access.password.", true);
+            return false;
+          }
+
+          if (hashPassword !== savedPassword) {
+            setStatus("Password in link is incorrect.", true);
+            return false;
+          }
+
+          sessionStorage.setItem("bank_balance_unlocked", "yes");
+          setStatus("Access granted from link.");
+          historySection.style.display = "none";
+          toggleHistoryBtn.textContent = "Show History";
+          window.location.hash = "";
+          await loadApp();
+          return true;
+        } catch (error) {
+          setStatus(error.message, true);
+          return false;
+        }
+      };
+
+      const runTx = async (sign) => {
+        const amount = Number(amountInput.value);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          setStatus("Enter a valid positive amount.", true);
+          return;
+        }
+
+        const delta = sign * Math.abs(amount);
+        try {
+          await saveTransaction(delta, noteInput.value.trim());
+          amountInput.value = "";
+          noteInput.value = "";
+          await loadBalance();
+          setStatus(`Saved ${delta > 0 ? "deposit" : "withdrawal"}.`);
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      };
+
+      document.getElementById("unlockBtn").addEventListener("click", verifyPassword);
+      document.getElementById("depositBtn").addEventListener("click", () => runTx(1));
+      document.getElementById("withdrawBtn").addEventListener("click", () => runTx(-1));
+      document.getElementById("lockBtn").addEventListener("click", () => {
+        sessionStorage.removeItem("bank_balance_unlocked");
+        historySection.style.display = "none";
+        toggleHistoryBtn.textContent = "Show History";
+        setStatus("Locked.");
+        showOnly(passwordSection);
+      });
+
+      toggleHistoryBtn.addEventListener("click", () => {
+        const showing = historySection.style.display !== "none";
+        historySection.style.display = showing ? "none" : "block";
+        toggleHistoryBtn.textContent = showing ? "Show History" : "Hide History";
+      });
+
+      historyList.addEventListener("click", async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const action = target.dataset.action;
+        const index = Number(target.dataset.index);
+        if (!action || !Number.isInteger(index)) return;
+
+        if (action === "edit") {
+          await editHistoryItem(index);
+        }
+        if (action === "delete") {
+          await deleteHistoryItem(index);
+        }
+      });
+
+      const boot = async () => {
+        setStatus("");
+        showOnly(loadingSection);
+
+        try {
+          const unlocked = sessionStorage.getItem("bank_balance_unlocked") === "yes";
+          if (unlocked) {
+            await loadApp();
+            return;
+          }
+
+          const unlockedFromHash = await tryUnlockFromHash();
+          if (!unlockedFromHash) {
+            showOnly(passwordSection);
+          }
+        } catch (error) {
+          setStatus(error.message, true);
+          showOnly(passwordSection);
+        }
+      };
+
+      window.addEventListener("hashchange", async () => {
+        if (sessionStorage.getItem("bank_balance_unlocked") === "yes") return;
+        await tryUnlockFromHash();
+      });
+
+      boot();
+    </script>
+  </body>
+</html>
